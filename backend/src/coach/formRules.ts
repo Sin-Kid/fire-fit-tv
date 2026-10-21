@@ -88,6 +88,19 @@ const NEEDS: Record<Family, ('shoulder' | 'elbow' | 'wrist' | 'hip' | 'knee' | '
   active: ['shoulder', 'hip'], stretch: ['shoulder', 'hip'],
 };
 
+/** Body position each family is done in; frames in another position don't count. */
+const POSTURE: Partial<Record<Family, 'upright' | 'squatting' | 'lying' | 'prone'>> = {
+  squat: 'squatting', lunge: 'squatting', jacks: 'upright', march: 'upright', highKnees: 'upright',
+  curl: 'upright', press: 'upright', pullApart: 'upright', boxing: 'upright', skater: 'squatting',
+  circles: 'upright', halo: 'upright', bridge: 'lying', crunch: 'lying', pushup: 'prone', climbers: 'prone',
+};
+
+/** Shortest believable rep per family, in ms (a squat can't take 0.2 s). */
+const MIN_REP_MS: Partial<Record<Family, number>> = {
+  squat: 500, lunge: 500, pushup: 400, curl: 400, press: 400, hinge: 500, row: 400, bridge: 500, crunch: 400,
+  burpee: 800, pullApart: 350, jacks: 250, march: 200, highKnees: 120, climbers: 120,
+};
+
 const PRAISE = ['Good rep!', 'Nice form!', 'Strong. Keep it up!', 'That’s the one!', 'Looking solid!'];
 
 // ---------- geometry (2D or 3D) ----------
@@ -159,10 +172,31 @@ export class LandmarkFilter {
 class RepCounter {
   private armed = false;
   private since = 0;
+  /** Seen the start position (past `high`) since the last rep? Starting mid-rep doesn't count. */
+  private ready = false;
   extreme = NaN;
-  constructor(private low: number, private high: number, private dir: 'down' | 'up' = 'down', private minMs = 180) {}
+  constructor(
+    private low: number,
+    private high: number,
+    private dir: 'down' | 'up' = 'down',
+    /** A real rep takes at least this long; anything faster is jitter. */
+    private minMs = 180,
+    /** Half-finished reps are dropped after this long (you stopped or walked off). */
+    private maxMs = 8000,
+  ) {}
+  /** Drop a half-finished rep (lost tracking, wrong posture). */
+  abandon() {
+    this.armed = false;
+    this.ready = false;
+  }
   /** Returns the most extreme value of the finished rep, or null. */
   feed(v: number, t = 0): number | null {
+    const atStart = this.dir === 'down' ? v > this.high : v < this.high;
+    if (!this.armed && !this.ready) {
+      if (atStart) this.ready = true;
+      return null;
+    }
+    if (this.armed && t - this.since > this.maxMs) this.abandon();
     const reached = this.dir === 'down' ? v < this.low : v > this.low;
     const back = this.dir === 'down' ? v > this.high : v < this.high;
     if (!this.armed && reached) {
@@ -216,6 +250,10 @@ export class FormCoach {
   /** Unwrapped rotation (degrees) for circling moves, and its direction. */
   private spin = { last: NaN, total: 0, dir: 0 };
   private lastRepAt: number | null = null;
+  private prevNeed: { x: number; y: number }[] | null = null;
+  private badFrameSince: number | null = null;
+  private lastLeg = '';
+  private lastLegAt = -Infinity;
   private firstT: number | null = null;
   private cueGap: number;
   private repeatGap: number;
@@ -229,6 +267,13 @@ export class FormCoach {
     this.cueGap = opts.cueGapMs ?? 3000;
     this.repeatGap = opts.repeatGapMs ?? 8000;
     this.aspect = opts.aspect ?? 1;
+  }
+
+  /** Forget half-finished reps (you left the frame). */
+  private abandonAll() {
+    for (const c of Object.values(this.counters)) c.abandon();
+    this.stage = 'closed';
+    this.track = {};
   }
 
   summary(): CoachSummary {
@@ -259,6 +304,7 @@ export class FormCoach {
 
     if (!lms || lms.length < 29) {
       this.lostSince ??= t;
+      if (t - this.lostSince > 1000) this.abandonAll();
       if (t - this.lostSince > 2000) cue("I can't see you. Step into the camera's view.", 'info');
       return out;
     }
@@ -286,16 +332,48 @@ export class FormCoach {
     const hidden = NEEDS[this.family].some((j) => vis(s[j]) < 0.5);
     if (hidden) {
       this.hiddenSince ??= t;
+      if (t - this.hiddenSince > 1000) this.abandonAll();
       if (t - this.hiddenSince > 1500) cue('Step back so I can see your whole body.', 'info');
       return out;
     }
     this.hiddenSince = null;
 
-    const ema = (k: string, v: number, a = 0.5) => (this.smooth[k] = this.smooth[k] == null ? v : this.smooth[k] + a * (v - this.smooth[k]));
+    // ---- frame quality: only clearly-seen, plausible frames move a rep forward ----
+    // MediaPipe still "guesses" joints it can't see (low visibility) and sometimes snaps a
+    // limb across the frame for one frame; both used to fake extra reps.
+    const needIdx = NEEDS[this.family].map((j) => s[j]);
+    const confident = needIdx.every((i) => vis(i) >= 0.65);
+    const imgTorso = Math.hypot((lms[s.shoulder].x - lms[s.hip].x) * this.aspect, lms[s.shoulder].y - lms[s.hip].y) || 0.1;
+    const cur = needIdx.map((i) => ({ x: lms[i].x * this.aspect, y: lms[i].y }));
+    const glitch = !!this.prevNeed && dt > 0 && dt < 120 && cur.some((p, i) => Math.hypot(p.x - this.prevNeed![i].x, p.y - this.prevNeed![i].y) / imgTorso > 0.6);
+    this.prevNeed = cur;
+    // The body has to be in the exercise's position (standing, lying, or in a plank).
+    const leanNow = fromVertical(L(s.hip), L(s.shoulder));
+    const posture = POSTURE[this.family];
+    const postureOk = posture === 'upright' ? leanNow < 40 : posture === 'squatting' ? leanNow < 65 : posture === 'lying' ? leanNow > 55 : posture === 'prone' ? leanNow > 45 : true;
+    const frameOk = confident && !glitch && postureOk;
+    if (frameOk) this.badFrameSince = null;
+    else this.badFrameSince ??= t;
+    const lostTooLong = this.badFrameSince != null && t - this.badFrameSince > 1000;
+
+    // Time-based smoothing so it behaves the same at 15 or 30 fps.
+    const ema = (k: string, v: number, tau = 50) => {
+      const a = dt ? 1 - Math.exp(-dt / tau) : 1;
+      return (this.smooth[k] = this.smooth[k] == null ? v : this.smooth[k] + a * (v - this.smooth[k]));
+    };
     const counters = this.counters;
-    const counter = (k: string, low: number, high: number, dir: 'down' | 'up' = 'down', minMs = 180) => {
+    const counter = (k: string, low: number, high: number, dir: 'down' | 'up' = 'down', minMs = MIN_REP_MS[this.family] ?? 180) => {
       const c = (counters[k] ??= new RepCounter(low, high, dir, minMs));
-      return { inRep: c.inRep, feed: (v: number) => c.feed(v, t) };
+      if (lostTooLong) c.abandon();
+      return { inRep: c.inRep, feed: (v: number) => (frameOk ? c.feed(v, t) : null) };
+    };
+    // Alternating moves (march, high knees, climbers): a leg only counts after the other one,
+    // so one jittery knee can't rack up reps.
+    const alternate = (leg: string) => {
+      if (this.lastLeg === leg && t - this.lastLegAt < 1200) return false;
+      this.lastLeg = leg;
+      this.lastLegAt = t;
+      return true;
     };
     const rep = (good: boolean, fix?: string) => {
       this.lastRepAt = t;
@@ -408,7 +486,7 @@ export class FormCoach {
           if (vis(side.knee) < 0.5) continue;
           const h = ema(`hip${name}`, angle(L(side.shoulder), L(side.hip), L(side.knee)));
           const c = counter(`climb${name}`, 110, 140);
-          if (c.feed(h) != null) rep(true);
+          if (c.feed(h) != null && alternate(name)) rep(true);
         }
         if (sustained(bodyLine < 145 && !hipBelowLine(), 1500)) cue('Keep your hips low, level with your shoulders.', 'fix');
         break;
@@ -445,10 +523,10 @@ export class FormCoach {
         const need = this.family === 'highKnees' ? -0.15 : -0.45;
         for (const [name, side] of [['a', s], ['b', o]] as const) {
           if (vis(side.knee) < 0.5) continue;
-          const lift = ema(`lift${name}`, (L(side.hip).y - L(side.knee).y) / torso, 0.6);
+          const lift = ema(`lift${name}`, (L(side.hip).y - L(side.knee).y) / torso, 35);
           const c = counter(`knee${name}`, -0.5, -0.62, 'up');
           if (c.inRep) maxTrack(`peak${name}`, lift);
-          if (c.feed(lift) != null) {
+          if (c.feed(lift) != null && alternate(name)) {
             const peak = takeTrack(`peak${name}`) ?? lift;
             if (peak < need) rep(false, this.family === 'highKnees' ? 'Drive your knees up to hip height.' : 'Lift your knees a little higher.');
             else rep(true);
@@ -518,7 +596,7 @@ export class FormCoach {
       }
       case 'burpee': {
         // Hips drop to the floor (plank/squat) and come back up to standing (or a jump).
-        const height = ema('hipH', (L(s.ankle).y - L(s.hip).y) / torso, 0.6);
+        const height = ema('hipH', (L(s.ankle).y - L(s.hip).y) / torso, 35);
         const bottom = counter('burpee', 0.9, 1.2).feed(height);
         if (bottom != null) rep(true);
         break;
@@ -531,7 +609,7 @@ export class FormCoach {
         // Centre of the side-to-side range (the extremes slowly forget, so stepping around the room is fine).
         const lo = (this.track.skLo = Math.min(hipX, (this.track.skLo ?? hipX) + 0.002));
         const hi = (this.track.skHi = Math.max(hipX, (this.track.skHi ?? hipX) - 0.002));
-        const off = ema('skOff', (hipX - (lo + hi) / 2) / imgTorso, 0.6);
+        const off = ema('skOff', (hipX - (lo + hi) / 2) / imgTorso, 35);
         if (this.stage !== 'open' && off > 0.3) {
           this.stage = 'open';
           rep(true);
@@ -578,7 +656,7 @@ export class FormCoach {
         // A punch: the arm straightens out from a guard and comes back. Either arm.
         for (const [name, side] of [['a', s], ['b', o]] as const) {
           if (vis(side.wrist) < 0.4) continue;
-          const reach = ema(`reach${name}`, dist(L(side.shoulder), L(side.wrist)) / (dist(L(side.shoulder), L(side.elbow)) + dist(L(side.elbow), L(side.wrist)) || 1), 0.6);
+          const reach = ema(`reach${name}`, dist(L(side.shoulder), L(side.wrist)) / (dist(L(side.shoulder), L(side.elbow)) + dist(L(side.elbow), L(side.wrist)) || 1), 35);
           if (counter(`punch${name}`, 0.75, 0.5, 'up', 60).feed(reach) != null) rep(true);
         }
         break;
@@ -594,7 +672,7 @@ export class FormCoach {
         const pts = [L(s.shoulder), L(s.hip), L(s.wrist), L(s.ankle), L(o.wrist), L(o.ankle)];
         const motion = this.prevPts ? pts.reduce((a, p, i) => a + dist(p, this.prevPts![i]), 0) / torso : 0;
         this.prevPts = pts;
-        const speed = ema('motion', dt ? (motion * 1000) / dt : 0, 0.2);
+        const speed = ema('motion', dt ? (motion * 1000) / dt : 0, 150);
         if (this.family === 'stretch') {
           this.holdMs += dt;
           holdPraise('Slow breaths. Ease a little deeper into the stretch.', 15000);

@@ -38,7 +38,10 @@ const REPS_PER_CYCLE: Record<string, number> = {
 for (const [key, perCycle] of Object.entries(REPS_PER_CYCLE)) {
   test(`${key}: counts every rep of the demo and calls it good form`, () => {
     const { summary, cues } = run(key, framesFor(anim(key), 4));
-    assert.equal(summary.reps, 4 * perCycle, `reps for ${key}`);
+    // Demos that open mid-rep (e.g. thrusters start at the bottom) lose that first rep:
+    // reps only count from a proper start position. Never more than the real number.
+    const expected = 4 * perCycle;
+    assert.ok(summary.reps === expected || summary.reps === expected - 1, `reps for ${key}: ${summary.reps}, expected ${expected}`);
     assert.equal(summary.goodReps, summary.reps, `good reps for ${key}`);
     assert.ok(cues.every((c) => c.kind !== 'fix'), `unexpected fix cue: ${cues.map((c) => c.text).join(' | ')}`);
   });
@@ -245,4 +248,49 @@ test('the TV app’s copy of the form rules (laptop mode) matches the phone’s'
   const a = readFileSync(new URL('../src/coach/formRules.ts', import.meta.url), 'utf8');
   const b = readFileSync(new URL('../../apps/FireFitTV/src/lib/formRules.ts', import.meta.url), 'utf8');
   assert.equal(b, a, 'copy backend/src/coach/formRules.ts to apps/FireFitTV/src/lib/formRules.ts');
+});
+
+// ---------- no phantom reps ----------
+
+test('occlusion glitches (low-confidence, jumping knee) add no reps', () => {
+  const frames = framesFor(anim('squat'), 4).map(([t, l], i) => {
+    if (i % 7 !== 3) return [t, l] as [number, Landmark[]];
+    const c = l.map((p) => ({ ...p }));
+    c[26] = { ...c[26], y: c[26].y - 0.25, visibility: 0.3 }; // MediaPipe "guessing" a hidden knee
+    return [t, c] as [number, Landmark[]];
+  });
+  assert.equal(run('squat', frames).summary.reps, 4);
+});
+
+test('one jittery knee during marching cannot rack up reps', () => {
+  const a = anim('march');
+  const frames: [number, Landmark[]][] = [];
+  for (let t = 0; t < 6000; t += 33) {
+    // Only the near leg lifts, twice a second.
+    const u = 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / 500);
+    frames.push([t, landmarksFrom(skeletonAt({ ...a.frames[0].p, rl: { to: [103, 180] } }, a.frames[0].p, u))]);
+  }
+  const reps = run('march', frames).summary.reps;
+  assert.ok(reps <= 6, `${reps} reps from one leg in 6 s`);
+});
+
+test('fast shaking that crosses the squat thresholds is not counted', () => {
+  // 5 Hz full-range oscillation: physically impossible squats (0.2 s each).
+  assert.equal(run('squat', partial(anim('squat'), 1, 25, 200)).summary.reps, 0);
+});
+
+test('push-up reps only count in a push-up position (not bending arms while standing)', () => {
+  const frames = framesFor(anim('curl'), 4); // standing, elbows bending
+  assert.equal(run('pushup', frames).summary.reps, 0);
+});
+
+test('walking out of view mid-rep drops that rep', () => {
+  const a = anim('squat');
+  const frames: [number, Landmark[] | null][] = [];
+  let t = 0;
+  for (; t < 700; t += 33) frames.push([t, landmarksFrom(skeletonAt(a.frames[0].p, a.frames[1].p, 0))]); // standing
+  for (let u = 0; u <= 1; u += 0.05, t += 33) frames.push([t, landmarksFrom(skeletonAt(a.frames[0].p, a.frames[1].p, u))]); // down
+  for (const end = t + 2500; t < end; t += 33) frames.push([t, null]); // gone
+  for (const end = t + 1000; t < end; t += 33) frames.push([t, landmarksFrom(skeletonAt(a.frames[0].p, a.frames[1].p, 0))]); // back, standing
+  assert.equal(run('squat', frames).summary.reps, 0);
 });
