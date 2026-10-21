@@ -1,4 +1,4 @@
-import { API_BASE_URL, REQUEST_TIMEOUT_MS } from './config';
+import { API_BASE_URL, HOSTED_WEB_DEMO, REQUEST_TIMEOUT_MS } from './config';
 import { buildFallbackWorkout } from './fallback';
 import type { Workout, WorkoutRequest } from './types';
 
@@ -19,6 +19,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
+  if (HOSTED_WEB_DEMO) throw new Error('hosted demo: no backend');
   const res = await withTimeout(
     fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',

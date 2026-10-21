@@ -4,7 +4,7 @@ import { FocusButton } from '../components/FocusButton';
 import { CoachPanel } from '../components/CoachPanel';
 import { IntensityBar } from '../components/IntensityBar';
 import type { CoachSession } from '../lib/coachApi';
-import { FORM_CAMERA_ENABLED, VOICE_REMOTE_ENABLED } from '../lib/config';
+import { FORM_CAMERA_ENABLED, HOSTED_WEB_DEMO, VOICE_REMOTE_ENABLED } from '../lib/config';
 import { useFormCoach } from '../lib/useFormCoach';
 import { parseScreenCommand } from '../lib/voiceCommands';
 import { webMicAvailable } from '../lib/useWebMic';
@@ -52,7 +52,7 @@ export function PreviewScreen({ workout, profile, offline, coach, onStart, onReg
       <View style={styles.left}>
         <View style={[styles.badge, { borderColor: workout.source === 'bedrock' ? colors.accent : colors.border }]}>
           <Text style={[styles.badgeText, { color: workout.source === 'bedrock' ? colors.accent : colors.textDim }]}>
-            {workout.source === 'bedrock' ? `AI-generated · Amazon Bedrock` : offline ? 'Offline workout' : 'Standard workout'}
+            {workout.source === 'bedrock' ? `AI-generated · Amazon Bedrock` : HOSTED_WEB_DEMO ? 'Browser demo · built on this device' : offline ? 'Offline workout' : 'Standard workout'}
           </Text>
         </View>
         <Text style={styles.title}>{workout.title}</Text>
@@ -74,7 +74,7 @@ export function PreviewScreen({ workout, profile, offline, coach, onStart, onReg
         {FORM_CAMERA_ENABLED ? (
           <CoachPanel session={coach} phoneConnected={!!coachState?.phoneConnected} camera={!!coachState?.camera && !!coachState?.phoneConnected} voice={!!coachState?.voiceConnected} />
         ) : null}
-        {VOICE_REMOTE_ENABLED && !FORM_CAMERA_ENABLED ? <VoicePanel session={coach} connected={!!coachState?.voiceConnected} webMic={webMicAvailable()} /> : null}
+        {VOICE_REMOTE_ENABLED && (!FORM_CAMERA_ENABLED || HOSTED_WEB_DEMO) ? <VoicePanel session={coach} connected={!!coachState?.voiceConnected} webMic={webMicAvailable()} /> : null}
       </View>
 
       <View style={styles.right}>

@@ -12,6 +12,13 @@ import { Platform } from 'react-native';
 //   Plain http needs cleartext traffic enabled on Android (see README).
 export const API_BASE_URL = Platform.OS === 'web' ? 'http://localhost:8787' : 'http://10.0.2.2:8787';
 
+/**
+ * The browser build hosted on the web (e.g. Netlify) has no backend: workouts are built
+ * on the device, and there's no phone pairing (the browser's own mic still works).
+ */
+export const HOSTED_WEB_DEMO =
+  Platform.OS === 'web' && typeof window !== 'undefined' && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location?.hostname ?? 'localhost');
+
 /** How long to wait for Bedrock before using the on-device fallback. */
 export const REQUEST_TIMEOUT_MS = 25000;
 

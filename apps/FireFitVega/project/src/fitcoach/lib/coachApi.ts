@@ -1,5 +1,5 @@
 // TV side of the phone form camera: pairing session + polling.
-import { API_BASE_URL, COACH_BASE_URL } from './config';
+import { API_BASE_URL, COACH_BASE_URL, HOSTED_WEB_DEMO } from './config';
 
 export type CueKind = 'good' | 'fix' | 'info';
 
@@ -52,6 +52,7 @@ export interface CoachSession {
 }
 
 export async function createCoachSession(): Promise<CoachSession | null> {
+  if (HOSTED_WEB_DEMO) return null;
   try {
     const r = await req<{ code: string; coachPath: string; coachUrl?: string | null; voicePath?: string; voiceUrl?: string | null }>('POST', '/session');
     return {
