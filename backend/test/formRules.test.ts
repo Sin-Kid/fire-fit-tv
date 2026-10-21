@@ -239,3 +239,10 @@ test('TV and phone agree on which moves count reps; unknown moves are never coun
   assert.equal(familyFor('other'), 'active');
   assert.equal(coachKeyFor('Goblet Squat'), 'squat');
 });
+
+test('the TV app’s copy of the form rules (laptop mode) matches the phone’s', async () => {
+  const { readFileSync } = await import('node:fs');
+  const a = readFileSync(new URL('../src/coach/formRules.ts', import.meta.url), 'utf8');
+  const b = readFileSync(new URL('../../apps/FireFitTV/src/lib/formRules.ts', import.meta.url), 'utf8');
+  assert.equal(b, a, 'copy backend/src/coach/formRules.ts to apps/FireFitTV/src/lib/formRules.ts');
+});

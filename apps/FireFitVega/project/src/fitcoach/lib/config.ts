@@ -10,7 +10,7 @@ import { Platform } from 'react-native';
 //   - Browser (npx expo start --web): 'http://localhost:8787' (picked automatically)
 //   - Fire TV stick on Wi-Fi: 'http://<your-computer-LAN-IP>:8787'
 //   Plain http needs cleartext traffic enabled on Android (see README).
-export const API_BASE_URL = Platform.OS === 'web' ? 'http://localhost:8787' : 'http://10.0.2.2:8787';
+const LOCAL_API = Platform.OS === 'web' ? 'http://localhost:8787' : 'http://10.0.2.2:8787';
 
 /**
  * The browser build hosted on the web (e.g. Netlify) has no backend: workouts are built
@@ -18,6 +18,12 @@ export const API_BASE_URL = Platform.OS === 'web' ? 'http://localhost:8787' : 'h
  */
 export const HOSTED_WEB_DEMO =
   Platform.OS === 'web' && typeof window !== 'undefined' && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location?.hostname ?? 'localhost');
+
+/**
+ * Where the API lives. Hosted on Netlify, the phone-pairing API is a Netlify Function on the
+ * same site (workouts are still built on the device there); otherwise the local backend.
+ */
+export const API_BASE_URL = HOSTED_WEB_DEMO ? window.location.origin : LOCAL_API;
 
 /** How long to wait for Bedrock before using the on-device fallback. */
 export const REQUEST_TIMEOUT_MS = 25000;

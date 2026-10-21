@@ -8,6 +8,7 @@ import { DEFAULT_PROFILE } from './lib/calories';
 import { createCoachSession, type CoachSession } from './lib/coachApi';
 import { FORM_CAMERA_ENABLED, VOICE_REMOTE_ENABLED } from './lib/config';
 import { TvStage } from './components/TvStage';
+import { detectLaptopCamera } from './lib/useLaptopCoach';
 import { colors } from './lib/theme';
 import type { Profile, Workout, WorkoutRequest } from './lib/types';
 import { LoadingScreen } from './screens/LoadingScreen';
@@ -30,6 +31,22 @@ export const App = () => {
   /** Body data for the calorie counter; asked for first, editable from the setup screen. */
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
   const [profileSet, setProfileSet] = useState(false);
+  /**
+   * Which coach to use, detected automatically:
+   *  - a browser with a webcam (laptop): the app runs the camera + mic itself;
+   *  - a TV (Fire OS / Vega): the phone companion is the camera + mic.
+   */
+  const [hasCamera, setHasCamera] = useState(false);
+  /** On a laptop you can still pick the TV experience (phone companion via QR); ?mode=tv starts there. */
+  const [preferPhone, setPreferPhone] = useState(() => typeof window !== 'undefined' && /[?&]mode=tv\b/.test(window.location?.search ?? ''));
+  const laptop = hasCamera && !preferPhone;
+  useEffect(() => {
+    let alive = true;
+    detectLaptopCamera().then((has) => alive && setHasCamera(has));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [request, setRequest] = useState<WorkoutRequest | undefined>();
   const [workout, setWorkout] = useState<Workout | undefined>();
   const [offline, setOffline] = useState(false);
@@ -41,7 +58,7 @@ export const App = () => {
     setScreen({ name: 'loading' });
     const [out, session] = await Promise.all([
       fetchWorkout(req),
-      !(FORM_CAMERA_ENABLED || VOICE_REMOTE_ENABLED) ? Promise.resolve(null) : coach ? Promise.resolve(coach) : createCoachSession(),
+      laptop || !(FORM_CAMERA_ENABLED || VOICE_REMOTE_ENABLED) ? Promise.resolve(null) : coach ? Promise.resolve(coach) : createCoachSession(),
     ]);
     setWorkout(out.workout);
     setOffline(out.offline);
@@ -86,7 +103,16 @@ export const App = () => {
       );
       break;
     case 'setup':
-      content = <SetupScreen onGenerate={generate} initial={request} profile={profile} onEditProfile={() => setScreen({ name: 'profile' })} />;
+      content = (
+        <SetupScreen
+          onGenerate={generate}
+          initial={request}
+          profile={profile}
+          onEditProfile={() => setScreen({ name: 'profile' })}
+          companion={hasCamera ? (laptop ? 'laptop' : 'phone') : undefined}
+          onToggleCompanion={() => setPreferPhone((p) => !p)}
+        />
+      );
       break;
     case 'loading':
       content = <LoadingScreen request={request!} />;
@@ -96,6 +122,7 @@ export const App = () => {
         <PreviewScreen
           workout={workout!}
           profile={profile}
+          laptop={laptop}
           offline={offline}
           coach={coach}
           onStart={() => setScreen({ name: 'player', runId: Date.now() })}
@@ -110,6 +137,7 @@ export const App = () => {
           key={screen.runId}
           workout={workout!}
           profile={profile}
+          laptop={laptop}
           coachCode={coach?.code ?? null}
           onFinish={(stats) => setScreen({ name: 'summary', stats })}
         />

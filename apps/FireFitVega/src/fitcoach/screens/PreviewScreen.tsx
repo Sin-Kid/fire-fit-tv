@@ -7,7 +7,7 @@ import type { CoachSession } from '../lib/coachApi';
 import { FORM_CAMERA_ENABLED, HOSTED_WEB_DEMO, VOICE_REMOTE_ENABLED } from '../lib/config';
 import { useFormCoach } from '../lib/useFormCoach';
 import { parseScreenCommand } from '../lib/voiceCommands';
-import { webMicAvailable } from '../lib/useWebMic';
+import { useWebMic, webMicAvailable } from '../lib/useWebMic';
 import { VoicePanel } from '../components/VoicePanel';
 import { colors, formatClock, phaseColor, phaseLabel, type as t } from '../lib/theme';
 import { workoutKcal } from '../lib/calories';
@@ -17,6 +17,8 @@ import { tvStyles, u } from '../lib/scale';
 interface Props {
   workout: Workout;
   profile: Profile;
+  /** Browser with a webcam: the laptop is the camera + mic. */
+  laptop?: boolean;
   offline: boolean;
   coach: CoachSession | null;
   onStart: () => void;
@@ -26,14 +28,17 @@ interface Props {
 
 const LIST_H = 1080 - 2 * 54 - 2 * 24 - 44; // canvas minus safe area, panel padding and legend
 
-export function PreviewScreen({ workout, profile, offline, coach, onStart, onRegenerate, onBack }: Props) {
+export function PreviewScreen({ workout, profile, laptop = false, offline, coach, onStart, onRegenerate, onBack }: Props) {
   // Phone mic works here too: "start", "new version", "back".
-  const coachState = useFormCoach(coach?.code, undefined, (heard) => {
+  const onHeard = (heard: string) => {
     const cmd = parseScreenCommand(heard);
     if (cmd === 'start') onStart();
     else if (cmd === 'newVersion') onRegenerate();
     else if (cmd === 'back' || cmd === 'newWorkout') onBack();
-  });
+  };
+  const coachState = useFormCoach(coach?.code, undefined, onHeard);
+  // Laptop mode: listen with the browser's own mic ("start").
+  useWebMic(laptop, onHeard);
   const n = workout.exercises.length;
   const cols = n <= 18 ? 1 : n <= 38 ? 2 : 3;
   const perCol = Math.ceil(n / cols);
@@ -71,10 +76,12 @@ export function PreviewScreen({ workout, profile, offline, coach, onStart, onReg
           <FocusButton label="Back" onPress={onBack} />
         </View>
 
-        {FORM_CAMERA_ENABLED ? (
+        {laptop ? (
+          <LaptopPanel />
+        ) : FORM_CAMERA_ENABLED ? (
           <CoachPanel session={coach} phoneConnected={!!coachState?.phoneConnected} camera={!!coachState?.camera && !!coachState?.phoneConnected} voice={!!coachState?.voiceConnected} />
         ) : null}
-        {VOICE_REMOTE_ENABLED && (!FORM_CAMERA_ENABLED || HOSTED_WEB_DEMO) ? <VoicePanel session={coach} connected={!!coachState?.voiceConnected} webMic={webMicAvailable()} /> : null}
+        {!laptop && VOICE_REMOTE_ENABLED && !FORM_CAMERA_ENABLED ? <VoicePanel session={coach} connected={!!coachState?.voiceConnected} webMic={webMicAvailable()} /> : null}
       </View>
 
       <View style={styles.right}>
@@ -112,6 +119,18 @@ export function PreviewScreen({ workout, profile, offline, coach, onStart, onReg
   );
 }
 
+function LaptopPanel() {
+  return (
+    <View style={styles.laptop}>
+      <Text style={styles.laptopKicker}>LAPTOP MODE · CAMERA + MIC</Text>
+      <Text style={styles.laptopTitle}>Your webcam checks your form</Text>
+      <Text style={styles.laptopBody}>
+        Allow the camera and microphone when the browser asks. Step back 2–3 m so your whole body is in view, then say “start”. During the workout say “skip”, “wait”, “rest” or “slow down”.
+      </Text>
+    </View>
+  );
+}
+
 function Stat({ value, label }: { value: string; label: string }) {
   return (
     <View style={styles.stat}>
@@ -131,6 +150,10 @@ const styles = tvStyles({
   intro: { color: colors.textDim, fontSize: t.body + 2, marginTop: 16, lineHeight: 42 },
   stats: { flexDirection: 'row', marginTop: 28, marginBottom: 28 },
   stat: { marginRight: 48 },
+  laptop: { backgroundColor: colors.surface, borderRadius: 20, padding: 22, marginTop: 28, maxWidth: 820 },
+  laptopKicker: { color: colors.textDim, fontSize: 16, fontWeight: '800', letterSpacing: 2 },
+  laptopTitle: { color: colors.text, fontSize: t.body + 2, fontWeight: '800', marginTop: 4 },
+  laptopBody: { color: colors.textDim, fontSize: t.small, marginTop: 6, lineHeight: 30 },
   statValue: { color: colors.text, fontSize: t.h2, fontWeight: '900', fontVariant: ['tabular-nums'] },
   statLabel: { color: colors.textDim, fontSize: t.small },
   buttons: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },

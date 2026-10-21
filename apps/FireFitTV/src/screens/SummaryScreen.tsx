@@ -34,7 +34,7 @@ export function SummaryScreen({ workout, stats, goal, coachCode = null, onAgain,
     let alive = true;
     (async () => {
       // Pull what the phone camera saw (if it was used) so the coach can comment on form.
-      const notes = coachCode ? formNotes((await getCoachState(coachCode).catch(() => null))?.stats) : [];
+      const notes = stats.form ?? (coachCode ? formNotes((await getCoachState(coachCode).catch(() => null))?.stats) : []);
       if (!alive) return;
       setForm(notes);
       const text = await fetchRecap({ title: workout.title, goal, ...stats, form: notes });
@@ -62,7 +62,7 @@ export function SummaryScreen({ workout, stats, goal, coachCode = null, onAgain,
 
       {form.length ? (
         <View style={styles.formRow}>
-          <Text style={styles.formLabel}>FORM CAMERA</Text>
+          <Text style={styles.formLabel}>{stats.form ? 'LAPTOP CAMERA' : 'FORM CAMERA'}</Text>
           {form.slice(0, 4).map((f) => (
             <View key={f.exercise} style={styles.formChip}>
               <Text style={styles.formName}>{f.exercise}</Text>

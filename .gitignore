@@ -10,3 +10,4 @@ build/
 tests/e2e/node_modules/
 tests/e2e/shots/
 tests/e2e/pose-frames.json
+.netlify/

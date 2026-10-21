@@ -1,0 +1,28 @@
+# Netlify: the browser version of the TV app + the phone-companion pairing API.
+# (Base directory = apps/FireFitTV, set in the Netlify project.)
+[build]
+  command = "npx expo export --platform web --output-dir dist/web && cp ../../backend/public/coach.html ../../backend/public/voice.html dist/web/ && mkdir -p dist/web/coach && cp ../../backend/public/form-rules.js dist/web/coach/form-rules.js"
+  publish = "dist/web"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  # The pairing API reuses backend/src/coach; its DynamoDB store is only used on AWS.
+  external_node_modules = ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb"]
+
+# Phone companion pages (same as the local backend's /coach and /voice).
+[[redirects]]
+  from = "/coach"
+  to = "/coach.html"
+  status = 200
+
+[[redirects]]
+  from = "/voice"
+  to = "/voice.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self), microphone=(self)"

@@ -4,7 +4,7 @@ import { CoachCaption } from '../components/CoachCaption';
 import { FocusButton } from '../components/FocusButton';
 import { ExerciseFigure } from '../components/ExerciseFigure';
 import { IntensityBar } from '../components/IntensityBar';
-import { setCoachExercise, type CueKind } from '../lib/coachApi';
+import { formNotes, setCoachExercise, type CueKind } from '../lib/coachApi';
 import { kcalPerSec, metFor, REST_MET } from '../lib/calories';
 import { GET_READY_SEC } from '../lib/config';
 import { tvStyles, u } from '../lib/scale';
@@ -13,6 +13,7 @@ import { hasVoice, say, setVoiceEnabled } from '../lib/speech';
 import { useFormCoach } from '../lib/useFormCoach';
 import { parseVoiceCommand, REST_STEP_SEC, type VoiceCommand } from '../lib/voiceCommands';
 import { useWebMic, webMicAvailable } from '../lib/useWebMic';
+import { useLaptopCoach } from '../lib/useLaptopCoach';
 import { colors, formatClock, phaseColor, phaseLabel, type as t } from '../lib/theme';
 import type { Exercise, Profile, Workout } from '../lib/types';
 
@@ -29,6 +30,8 @@ export interface SessionStats {
   total: number;
   /** Estimated calories burned (work + rest, not pauses). */
   kcal: number;
+  /** Laptop-camera form results, when the laptop's webcam coached this session. */
+  form?: ReturnType<typeof formNotes>;
 }
 
 function announcementFor(s: Segment): string {
@@ -47,7 +50,7 @@ function buildSegments(w: Workout): Segment[] {
   return segs;
 }
 
-export function PlayerScreen({ workout, profile, coachCode = null, onFinish }: { workout: Workout; profile: Profile; coachCode?: string | null; onFinish: (s: SessionStats) => void }) {
+export function PlayerScreen({ workout, profile, coachCode = null, laptop = false, onFinish }: { workout: Workout; profile: Profile; coachCode?: string | null; laptop?: boolean; onFinish: (s: SessionStats) => void }) {
   // A rest can be inserted by voice ("rest"), so the segment list is state, mirrored in a ref for handlers.
   const [segments, setSegments] = useState(() => buildSegments(workout));
   const segsRef = useRef(segments);
@@ -69,10 +72,22 @@ export function PlayerScreen({ workout, profile, coachCode = null, onFinish }: {
     },
     (heard) => heardRef.current(heard),
   );
-  const [micOn, setMicOn] = useState(false);
+  // Laptop mode: the browser's mic listens from the start (the Start press already asked for it).
+  const [micOn, setMicOn] = useState(laptop);
   const [voiceNote, setVoiceNote] = useState<{ text: string; id: number } | null>(null);
   useWebMic(micOn, (heard) => heardRef.current(heard));
-  const cameraLive = !!coach?.phoneConnected && !!coach?.camera;
+  const seg0 = segments[segIdx];
+  const laptopCoach = useLaptopCoach({
+    enabled: laptop,
+    hostId: 'fitcoach-laptop-cam',
+    exercise: seg0.kind === 'work' && !paused ? { name: seg0.ex.name, key: coachKeyFor(seg0.ex.name, seg0.ex.phase) } : null,
+    onCue: (text, kind) => {
+      setCue({ text, kind });
+      say(text);
+    },
+  });
+  const cameraLive = laptop ? laptopCoach.status === 'live' : !!coach?.phoneConnected && !!coach?.camera;
+  const liveReps = laptop ? laptopCoach.reps : coach?.live?.reps ?? 0;
   const [noVoice, setNoVoice] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -107,7 +122,7 @@ export function PlayerScreen({ workout, profile, coachCode = null, onFinish }: {
   const finish = () => {
     if (timer.current.finished) return;
     timer.current.finished = true;
-    onFinish({ ...stats.current, activeSec: Math.round(stats.current.activeSec), kcal: Math.round(stats.current.kcal) });
+    onFinish({ ...stats.current, activeSec: Math.round(stats.current.activeSec), kcal: Math.round(stats.current.kcal), form: laptop ? laptopCoach.notes() : undefined });
   };
 
   const advance = (how: 'natural' | 'skip') => {
@@ -341,21 +356,29 @@ export function PlayerScreen({ workout, profile, coachCode = null, onFinish }: {
       <View style={styles.body}>
         <View style={styles.figure}>
           {seg.kind === 'work' ? (
-            <ExerciseFigure name={seg.ex.name} phase={seg.ex.phase} color={accent} size={440} speed={figureSpeed} playing={!paused} />
+            <ExerciseFigure name={seg.ex.name} phase={seg.ex.phase} color={accent} size={laptop ? 300 : 440} speed={figureSpeed} playing={!paused} />
           ) : (
             <ExerciseFigure
               name={seg.next.name}
               phase={seg.next.phase}
               color={phaseColor(seg.next.phase)}
-              size={440}
+              size={laptop ? 300 : 440}
               speed={0.6}
               playing={!paused}
               style={{ opacity: 0.7 }}
             />
           )}
-          {cameraLive && seg.kind === 'work' && coach?.live?.exercise === seg.ex.name && countsReps(coachKeyFor(seg.ex.name, seg.ex.phase)) ? (
+          {laptop ? (
+            <View style={styles.cam}>
+              <View nativeID="fitcoach-laptop-cam" style={styles.camHost} />
+              {laptopCoach.status !== 'live' ? (
+                <Text style={styles.camMsg}>{laptopCoach.error ?? (laptopCoach.status === 'starting' ? 'Starting camera…' : 'Camera off')}</Text>
+              ) : null}
+            </View>
+          ) : null}
+          {cameraLive && seg.kind === 'work' && (laptop || coach?.live?.exercise === seg.ex.name) && countsReps(coachKeyFor(seg.ex.name, seg.ex.phase)) ? (
             <Text style={[styles.reps, { color: accent }]}>
-              {coach.live.reps} <Text style={styles.repsLabel}>{coach.live.reps === 1 ? 'rep' : 'reps'}</Text>
+              {liveReps} <Text style={styles.repsLabel}>{liveReps === 1 ? 'rep' : 'reps'}</Text>
             </Text>
           ) : null}
         </View>
@@ -446,6 +469,9 @@ const styles = tvStyles({
   paused: { color: colors.text, fontSize: t.h2, fontWeight: '900', letterSpacing: 6, marginTop: 24 },
   next: { color: colors.textDim, fontSize: t.body, marginTop: 24 },
   controls: { flexDirection: 'row', justifyContent: 'center' },
+  cam: { width: 400, height: 300, marginTop: 16, borderRadius: 16, overflow: 'hidden', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  camHost: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 },
+  camMsg: { color: colors.textDim, fontSize: 22, textAlign: 'center', paddingHorizontal: 20 },
   reps: { fontSize: 64, fontWeight: '900', marginTop: 4, fontVariant: ['tabular-nums'] },
   repsLabel: { fontSize: 28, fontWeight: '700', color: colors.textDim },
   camChip: { flexDirection: 'row', alignItems: 'center', marginTop: 24, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, borderWidth: 2, borderColor: colors.border },

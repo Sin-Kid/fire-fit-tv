@@ -130,6 +130,10 @@ Every move has an animated stick-figure demo: 32 in total, covering every move t
 4. After the session the app sends completion stats to `/recap`, and Bedrock writes a 2–3 sentence coach recap with one suggestion for next time.
 5. Every Bedrock call has a fallback, so a throttled model or a flaky network never breaks the TV experience.
 
+## Laptop mode (detected automatically)
+
+Open the browser build on a computer with a webcam (e.g. https://fire-fit-tv.netlify.app) and the app coaches form by itself: it detects the camera, runs MediaPipe Pose Landmarker in the page (`src/lib/useLaptopCoach.web.ts`, same form rules as the phone), shows a live camera preview with your skeleton and rep count, and listens with the browser's mic for "start", "skip", "wait", "rest"… On a TV (Fire OS / Vega) there's no camera, so the phone companion below is used instead.
+
 ## Phone companion: form camera (MediaPipe) + voice
 
 The TV runs the workout; the phone is only a sensor. TV apps get no camera and no microphone, so the phone lends them both: one page, `/coach`, with a single *Start camera + mic* button. It checks your position and form and listens for commands, and everything it finds is shown and spoken on the TV. (`FORM_CAMERA_ENABLED` and `VOICE_REMOTE_ENABLED` in `apps/FireFitTV/src/lib/config.ts` switch the two off.)

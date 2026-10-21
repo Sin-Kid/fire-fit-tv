@@ -33,7 +33,17 @@ const NOTES = [
   { id: 'Small space, I can only take one step in each direction', label: 'Small space' },
 ];
 
-export function SetupScreen({ onGenerate, initial, profile, onEditProfile }: { onGenerate: (r: WorkoutRequest) => void; initial?: WorkoutRequest; profile: Profile; onEditProfile: () => void }) {
+export function SetupScreen({
+  onGenerate, initial, profile, onEditProfile, companion, onToggleCompanion,
+}: {
+  onGenerate: (r: WorkoutRequest) => void;
+  initial?: WorkoutRequest;
+  profile: Profile;
+  onEditProfile: () => void;
+  /** Shown on computers with a webcam: coach with this laptop's camera, or the TV experience with a phone. */
+  companion?: 'laptop' | 'phone';
+  onToggleCompanion?: () => void;
+}) {
   const [goal, setGoal] = useState<Goal>(initial?.goal ?? 'cardio');
   const [minutes, setMinutes] = useState(initial?.minutes ?? 15);
   const [level, setLevel] = useState<Level>(initial?.level ?? 'beginner');
@@ -96,6 +106,13 @@ export function SetupScreen({ onGenerate, initial, profile, onEditProfile }: { o
           onPress={() => onGenerate({ goal, minutes, level, equipment, notes: notes || undefined })}
         />
         <FocusButton label={`You: ${profile.weightKg} kg · ${profile.heightCm} cm · ${profile.age} y`} sublabel="Edit for the calorie counter" onPress={onEditProfile} />
+        {companion && onToggleCompanion ? (
+          <FocusButton
+            label={companion === 'laptop' ? 'Coach: this laptop’s camera' : 'Coach: phone (TV mode)'}
+            sublabel={companion === 'laptop' ? 'Switch to the TV + phone QR' : 'Switch to the laptop camera'}
+            onPress={onToggleCompanion}
+          />
+        ) : null}
       </View>
     </ScrollView>
   );
