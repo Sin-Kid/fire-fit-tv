@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FitCoach Phone Companion</title>
+<style>
+  /* Phone-first: one column, thumb-reachable controls, camera fills the width. Matches the TV's palette. */
+  :root {
+    --bg: #0B0F14; --panel: #151B23; --line: #2A3441; --fg: #F4F7FA; --dim: #9AA7B6;
+    --lime: #C6F432; --amber: #FFB547; --sky: #5CD6FF; --red: #FF6B6B;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); }
+  main {
+    max-width: 640px; margin: 0 auto; display: grid; gap: 14px;
+    padding-block: max(16px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right));
+  }
+  h1 { margin: 0; font-size: 24px; letter-spacing: -.01em; }
+  h1 span { color: var(--lime); }
+  p { margin: 0; color: var(--dim); line-height: 1.45; }
+  .panel { background: var(--panel); border-radius: 14px; padding: 14px; display: grid; gap: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+  input#code {
+    font: 700 34px/1 var(--font); letter-spacing: .3em; width: 7.2ch; padding: 10px 12px; border-radius: 10px;
+    border: 2px solid var(--line); background: var(--bg); color: var(--fg); text-align: center;
+  }
+  button {
+    font: 700 17px var(--font); border-radius: 12px; border: 2px solid var(--line); background: var(--bg);
+    color: var(--fg); padding: 12px 16px; cursor: pointer;
+  }
+  button.primary { background: var(--lime); color: #0B0F14; border-color: var(--lime); }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .chip { font-size: 14px; font-weight: 700; padding: 6px 10px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--dim); }
+  .chip.ok { color: var(--lime); border-color: var(--lime); }
+  .chip.err { color: var(--red); border-color: var(--red); }
+  .stage { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 3 / 4; max-width: 100%; }
+  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .stage.mirror video, .stage.mirror canvas { transform: scaleX(-1); }
+  .stage .msg { position: absolute; inset: auto 0 0 0; padding: 10px 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); font-size: 15px; }
+  .live { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: end; }
+  .live .ex { font-size: 22px; font-weight: 800; min-width: 0; overflow-wrap: anywhere; }
+  .live .reps { font-size: 48px; font-weight: 900; color: var(--lime); font-variant-numeric: tabular-nums; line-height: 1; text-align: right; }
+  .live .sub { color: var(--dim); font-size: 13px; }
+  .caption { font-size: 20px; font-weight: 700; min-height: 1.4em; border-left: 5px solid var(--line); padding-left: 10px; }
+  .caption.good { border-color: var(--lime); }
+  .caption.fix { border-color: var(--amber); }
+  .caption.info { border-color: var(--sky); }
+  ul.tips { margin: 0; padding-left: 18px; color: var(--dim); line-height: 1.5; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header style="display:grid;gap:6px">
+    <h1>FitCoach <span>Phone Companion</span></h1>
+    <p>Your TV runs the workout. This phone is just its camera and microphone: it checks your position and form, and listens for “start”, “skip”, “wait”, “slow down” or “rest”.</p>
+  </header>
+
+  <section class="panel" id="pairPanel">
+    <label for="code">Code shown on your TV</label>
+    <div class="row">
+      <input id="code" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="0000">
+      <button id="connect" class="primary">Connect</button>
+      <span id="status" class="chip">Not connected</span>
+    </div>
+  </section>
+
+
+  <section class="panel" id="cameraPanel" hidden>
+    <ul class="tips">
+      <li>Prop the phone up 2–3 m away, side-on to you.</li>
+      <li>Keep your whole body in the picture, head to feet.</li>
+    </ul>
+    <div class="row">
+      <button id="start" class="primary" style="font-size:20px;padding:16px 22px">Start camera + mic</button>
+      <button id="switchCam" hidden>Switch camera</button>
+      <span id="camChip" class="chip">Camera off</span>
+      <span id="micChip" class="chip">Mic off</span>
+      <input type="checkbox" id="speakHere" hidden>
+    </div>
+    <div class="stage mirror" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="msg" id="loadMsg">Camera is off.</div>
+    </div>
+    <p id="micNote">Say “start” on the preview screen, then “skip”, “wait”, “go”, “slow down”, “rest”, “more rest”, “easier” or “end workout”. The TV does the rest.</p>
+    <div class="caption info" id="heard"></div>
+    <div class="live" hidden>
+      <div class="ex" id="exercise">Waiting for your TV…</div>
+      <div class="reps" id="reps">0</div>
+      <div class="sub" id="exSub">Press Start on the TV to begin a move.</div>
+      <div class="sub" style="text-align:right">reps</div>
+    </div>
+    <div class="caption" id="caption" hidden></div>
+  </section>
+</main>
+
+<script src="/coach/form-rules.js"></script>
+<script type="module">
+const MP_VERSION = '0.10.21';
+const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
+// The "full" model is noticeably steadier than "lite"; slow phones drop back to lite automatically.
+const MODELS = {
+  full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+  lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+};
+const API = location.origin;
+const FPS = 30; // fast moves (jacks, high knees) need the frames
+const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+
+const $ = (id) => document.getElementById(id);
+const st = {
+  code: null, exercise: null, coach: null, coachId: '', stats: {}, camera: false,
+  facing: 'user', stream: null, landmarker: null, running: false, lastLms: null,
+};
+
+// ---------- pairing ----------
+const qs = new URLSearchParams(location.search);
+if (/^\d{4}$/.test(qs.get('code') || '')) $('code').value = qs.get('code');
+
+function setStatus(text, cls = '') { const s = $('status'); s.textContent = text; s.className = 'chip ' + cls; }
+
+async function post(body) {
+  const res = await fetch(`${API}/session/${st.code}/phone`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.error || `HTTP ${res.status}`), { status: res.status });
+  return json;
+}
+
+$('connect').addEventListener('click', async () => {
+  const code = $('code').value.trim();
+  if (!/^\d{4}$/.test(code)) { setStatus('Enter the 4-digit code', 'err'); return; }
+  st.code = code;
+  setStatus('Connecting…');
+  try {
+    const r = await post({ type: 'hello', camera: st.camera });
+    setStatus(`Connected to TV ${code}`, 'ok');
+    $('cameraPanel').hidden = false;
+    onExercise(r.exercise);
+    heartbeat();
+  } catch (e) {
+    setStatus(e.status === 404 ? 'Code not found. Check your TV.' : "Can't reach FitCoach. Check your connection.", 'err');
+  }
+});
+
+// ---------- exercise tracking ----------
+function mergeSummary(prev, s) {
+  if (!prev) return s;
+  const cues = { ...prev.cues };
+  for (const [t, n] of Object.entries(s.cues)) cues[t] = (cues[t] || 0) + n;
+  return { ...s, reps: prev.reps + s.reps, goodReps: prev.goodReps + s.goodReps, holdSec: prev.holdSec + s.holdSec, cues };
+}
+function closeCoach() {
+  if (st.coach) {
+    const s = st.coach.summary();
+    if (s.reps || s.holdSec) st.stats[s.exercise] = mergeSummary(st.stats[s.exercise], s);
+  }
+  st.coach = null;
+}
+function currentStats() {
+  const out = { ...st.stats };
+  if (st.coach) { const s = st.coach.summary(); out[s.exercise] = mergeSummary(out[s.exercise], s); }
+  return out;
+}
+function onExercise(ex) {
+  const id = ex ? `${ex.index}:${ex.name}` : '';
+  if (id === st.coachId) return;
+  closeCoach();
+  st.coachId = id;
+  st.exercise = ex;
+  if (ex) {
+    const v = $('video');
+    st.coach = new FormRules.FormCoach(ex.name, ex.key, { aspect: v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 1 });
+    st.filterImg.reset(); st.filterWorld.reset();
+    $('exercise').textContent = ex.name;
+    $('exSub').textContent = ex.phase === 'warmup' ? 'Warm-up' : ex.phase === 'cooldown' ? 'Cool-down' : 'Workout';
+  } else {
+    $('exercise').textContent = 'Resting';
+    $('exSub').textContent = 'Coaching resumes with the next move.';
+  }
+  $('reps').textContent = '0';
+}
+
+let hbTimer = null;
+async function heartbeat() {
+  clearTimeout(hbTimer);
+  try {
+    const r = await post({
+      type: 'heartbeat', camera: st.camera,
+      exercise: st.exercise?.name, reps: st.coach?.summary().reps ?? 0, stats: currentStats(),
+    });
+    onExercise(r.exercise);
+    setStatus(`Connected to TV ${st.code}`, 'ok');
+  } catch (e) {
+    setStatus(e.status === 404 ? 'Session ended on the TV' : 'Reconnecting…', 'err');
+  }
+  hbTimer = setTimeout(heartbeat, 1500);
+}
+
+// ---------- speech + caption ----------
+function showCue(text, kind) {
+  const c = $('caption');
+  c.textContent = text;
+  c.className = 'caption ' + kind;
+  if ($('speakHere').checked && 'speechSynthesis' in window) {
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  }
+}
+
+// ---------- pose source ----------
+/** MediaPipe reports visibility; if a build leaves it at 0, fall back to "is it inside the frame". */
+function normalize(lms) {
+  if (!lms) return null;
+  const hasVis = lms.some((p) => (p.visibility ?? 0) > 0.01);
+  return hasVis ? lms : lms.map((p) => ({ ...p, visibility: p.x > -0.05 && p.x < 1.05 && p.y > -0.05 && p.y < 1.05 ? 0.9 : 0.1 }));
+}
+
+async function startCamera() {
+  if (st.stream) st.stream.getTracks().forEach((t) => t.stop());
+  st.stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: st.facing, width: { ideal: 720 }, height: { ideal: 960 } }, audio: false,
+  });
+  const v = $('video');
+  v.srcObject = st.stream;
+  await v.play();
+  $('stage').classList.toggle('mirror', st.facing === 'user');
+}
+
+async function loadModel(kind = 'full') {
+  const { FilesetResolver, PoseLandmarker } = await import(`${MP_BASE}/vision_bundle.mjs`);
+  const fileset = await FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetPath: MODELS[kind], delegate }, runningMode: 'VIDEO', numPoses: 1,
+    minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.6,
+  });
+  st.modelKind = kind;
+  try { return await PoseLandmarker.createFromOptions(fileset, opts('GPU')); }
+  catch { return await PoseLandmarker.createFromOptions(fileset, opts('CPU')); }
+}
+
+$('start').addEventListener('click', async () => {
+  $('start').disabled = true;
+  startMic(); // same tap starts the microphone (browsers need a tap for both)
+  try {
+    if (window.__poseSource) {
+      $('loadMsg').textContent = 'Test pose source';
+    } else {
+      $('loadMsg').textContent = 'Starting camera…';
+      await startCamera();
+      $('loadMsg').textContent = 'Loading the pose model…';
+      st.landmarker = await loadModel();
+      $('switchCam').hidden = false;
+    }
+    st.camera = true;
+    $('loadMsg').textContent = 'Watching your position and form';
+    $('start').textContent = 'Running';
+    $('camChip').textContent = 'Camera on'; $('camChip').className = 'chip ok';
+    st.running = true;
+    loop();
+  } catch (e) {
+    $('start').disabled = false;
+    $('loadMsg').textContent = e.name === 'NotAllowedError'
+      ? 'Camera permission was blocked. Allow the camera for this site and try again.'
+      : !window.isSecureContext ? 'Camera needs a secure (https) link. Open the link shown on your TV.'
+      : `Couldn't start: ${e.message}`;
+  }
+});
+
+$('switchCam').addEventListener('click', async () => {
+  st.facing = st.facing === 'user' ? 'environment' : 'user';
+  try { await startCamera(); } catch (e) { $('loadMsg').textContent = `Couldn't switch camera: ${e.message}`; }
+});
+
+function draw(lms) {
+  const c = $('overlay');
+  const w = (c.width = c.clientWidth * devicePixelRatio);
+  const h = (c.height = c.clientHeight * devicePixelRatio);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  if (!lms) return;
+  // Match the video's object-fit: cover crop.
+  const v = $('video');
+  const vw = v.videoWidth || w, vh = v.videoHeight || h;
+  const scale = Math.max(w / vw, h / vh);
+  const ox = (w - vw * scale) / 2, oy = (h - vh * scale) / 2;
+  const P = (p) => [ox + p.x * vw * scale, oy + p.y * vh * scale];
+  ctx.lineWidth = 6 * devicePixelRatio; ctx.lineCap = 'round';
+  ctx.strokeStyle = '#C6F432';
+  for (const [a, b] of BONES) {
+    if ((lms[a].visibility ?? 1) < 0.5 || (lms[b].visibility ?? 1) < 0.5) continue;
+    ctx.beginPath(); ctx.moveTo(...P(lms[a])); ctx.lineTo(...P(lms[b])); ctx.stroke();
+  }
+  ctx.fillStyle = '#F4F7FA';
+  for (const i of [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) {
+    if ((lms[i].visibility ?? 1) < 0.5) continue;
+    const [x, y] = P(lms[i]); ctx.beginPath(); ctx.arc(x, y, 5 * devicePixelRatio, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+let lastFrame = 0;
+const perf = { n: 0, ms: 0, switching: false };
+// Smooth landmarks before measuring (One Euro filter): steady when still, no lag when moving.
+st.filterImg = new FormRules.LandmarkFilter();
+st.filterWorld = new FormRules.LandmarkFilter(1.0, 0.8);
+function loop() {
+  if (!st.running) return;
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  if (now - lastFrame < 1000 / FPS) return;
+  lastFrame = now;
+
+  let lms = null;
+  if (window.__poseSource) lms = window.__poseSource(now);
+  let world = null;
+  if (!window.__poseSource && st.landmarker && $('video').readyState >= 2) {
+    const t0 = performance.now();
+    const res = st.landmarker.detectForVideo($('video'), now);
+    lms = res.landmarks?.[0] ?? null;
+    world = res.worldLandmarks?.[0] ?? null;
+    // If the full model can't keep up (~12 fps or worse), switch to lite once.
+    perf.ms += performance.now() - t0; perf.n++;
+    if (perf.n === 45) {
+      if (st.modelKind === 'full' && perf.ms / perf.n > 80 && !perf.switching) {
+        perf.switching = true;
+        loadModel('lite').then((m) => { st.landmarker?.close?.(); st.landmarker = m; perf.switching = false; }).catch(() => { perf.switching = false; });
+      }
+      perf.n = 0; perf.ms = 0;
+    }
+  }
+  lms = normalize(lms);
+  // World landmarks carry no visibility; borrow it from the image landmarks.
+  if (world && lms) world = world.map((p, i) => ({ ...p, visibility: lms[i]?.visibility }));
+  lms = st.filterImg.apply(lms, now);
+  world = st.filterWorld.apply(world, now);
+  draw(lms);
+  if (!st.coach) return;
+
+  for (const e of st.coach.update(lms, now, world)) {
+    if (e.type === 'rep') {
+      $('reps').textContent = String(e.reps);
+      post({ type: 'rep', camera: true, exercise: st.exercise.name, reps: e.reps }).catch(() => {});
+    } else {
+      showCue(e.text, e.kind);
+      post({ type: 'cue', camera: true, text: e.text, kind: e.kind, exercise: st.exercise.name, reps: st.coach.summary().reps }).catch(() => {});
+    }
+  }
+}
+
+// ---------- voice commands (the TV app has no microphone, so the phone listens) ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const voice = { rec: null, on: false, ping: null };
+async function sendVoice(heard) {
+  if (!st.code) return;
+  try {
+    await fetch(`${API}/session/${st.code}/voice`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(heard ? { heard } : {}) });
+  } catch {}
+}
+function micChip(text, cls) { $('micChip').textContent = text; $('micChip').className = 'chip ' + cls; }
+function startMic() {
+  if (voice.on) return;
+  if (!SR) {
+    micChip('No mic', 'err');
+    $('micNote').textContent = 'This browser has no speech recognition (Brave and Firefox don’t). Open the link in Chrome or Safari for voice commands.';
+    return;
+  }
+  voice.on = true;
+  const rec = new SR();
+  rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = (ev) => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      if (!ev.results[i].isFinal) continue;
+      const text = ev.results[i][0].transcript.trim();
+      if (text) { $('heard').textContent = `Heard “${text}”`; sendVoice(text); }
+    }
+  };
+  rec.onerror = (ev) => {
+    if (ev.error === 'not-allowed') { micChip('Mic blocked', 'err'); $('micNote').textContent = 'Microphone blocked. Allow it for this site, then reload.'; voice.on = false; }
+  };
+  // Browsers end recognition after silence; keep listening.
+  rec.onend = () => { if (voice.on) { try { rec.start(); } catch {} } };
+  try { rec.start(); micChip('Mic on', 'ok'); } catch {}
+  voice.rec = rec;
+  sendVoice();
+  voice.ping = setInterval(() => sendVoice(), 2500);
+}
+
+window.addEventListener('pagehide', () => st.stream?.getTracks().forEach((t) => t.stop()));
+</script>
+</body>
+</html>

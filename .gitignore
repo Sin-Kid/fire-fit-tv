@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-lambda/
+.aws-sam/
+samconfig.toml
+build/
+.env
+*.log
+.DS_Store
+tests/e2e/node_modules/
+tests/e2e/shots/
+tests/e2e/pose-frames.json

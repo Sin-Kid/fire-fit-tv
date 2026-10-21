@@ -1,0 +1,32 @@
+{
+  "name": "fitcoach-tv-backend",
+  "version": "1.0.0",
+  "description": "Workout generator API for FitCoach TV, powered by Amazon Bedrock (Converse API + tool-based structured output).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "npm run build:coach && tsx watch src/server.ts",
+    "start": "npm run build:coach && tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "bundle:lambda": "npm run build:coach && esbuild src/lambda.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist-lambda/index.mjs --external:@aws-sdk/* && rm -rf dist-lambda/public && cp -r public dist-lambda/public",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "build:coach": "esbuild src/coach/formRules.ts --bundle --format=iife --global-name=FormRules --target=es2019 --outfile=public/form-rules.js",
+    "phone": "node scripts/phone.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.700.0",
+    "@aws-sdk/client-dynamodb": "^3.1154.0",
+    "@aws-sdk/lib-dynamodb": "^3.1154.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

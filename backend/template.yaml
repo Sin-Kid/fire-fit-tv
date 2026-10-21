@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FitCoach TV workout API (AWS Lambda + Function URL + Amazon Bedrock + DynamoDB pairing sessions)
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: global.amazon.nova-2-lite-v1:0
+    Description: Bedrock model or inference profile id used for workout generation
+
+Resources:
+  # TV <-> phone form-camera pairing sessions (auto-deleted after 6 hours via TTL).
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: code
+          AttributeType: S
+      KeySchema:
+        - AttributeName: code
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  FitCoachApi:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: fitcoach-tv-api
+      Runtime: nodejs24.x
+      Handler: index.handler
+      CodeUri: dist-lambda/
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          SESSIONS_TABLE: !Ref SessionsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: '*'
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins: ['*']
+          AllowMethods: [GET, POST, PUT]
+          AllowHeaders: [Content-Type]
+
+Outputs:
+  CoachPageUrl:
+    Description: Phone form-camera page (the TV shows this as a QR code)
+    Value: !Sub '${FitCoachApiUrl.FunctionUrl}coach'
+  ApiUrl:
+    Description: Paste this into app/src/lib/config.ts as API_BASE_URL (without the trailing slash)
+    Value: !GetAtt FitCoachApiUrl.FunctionUrl
