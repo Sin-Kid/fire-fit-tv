@@ -1,0 +1,21 @@
+Fire-Fit: AI Personal Trainer for Fire TV — prebuilt Vega packages
+
+Files
+  fitcoachvega_aarch64.vpkg  Vega Virtual Device on Apple Silicon Macs
+  fitcoachvega_x86_64.vpkg   Vega Virtual Device on Intel/AMD computers
+  fitcoachvega_armv7.vpkg    Fire TV devices running Vega OS
+  gallery/                   Screenshots (3:2)
+  FRICTION_LOG.md            Issues we hit and suggestions
+
+Run in the Vega Virtual Device (Vega SDK 0.24+):
+  vega virtual-device start --timeout 180
+  vega run-app fitcoachvega_aarch64.vpkg com.firefit.vega.main -d VirtualDevice
+  (use the x86_64 package on Intel/AMD machines)
+
+Controls: arrow keys + Enter as the remote.
+Without the backend running, workouts are built on the device ("Offline workout").
+For Amazon Bedrock workouts and the phone companion (camera + voice), run the backend:
+  cd backend && npm install && npm run phone      (see README.md)
+
+Try it in a browser, no install: https://fire-fit-tv.netlify.app/?mode=tv
+Source: https://github.com/Sin-Kid/fire-fit-tv
