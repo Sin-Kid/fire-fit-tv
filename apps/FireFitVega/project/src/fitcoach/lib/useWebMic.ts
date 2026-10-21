@@ -2,6 +2,7 @@
 // get a microphone, so on those the voice remote page plays this role instead.
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
+import { speakingRecently } from './speech';
 
 type Rec = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((e: any) => void) | null; onend: (() => void) | null; onerror: ((e: any) => void) | null };
 
@@ -28,6 +29,8 @@ export function useWebMic(on: boolean, onHeard: (text: string) => void) {
     rec.continuous = true;
     rec.interimResults = false;
     rec.onresult = (e) => {
+      // The mic also hears the TV's own coaching voice; ignore what arrives while it talks.
+      if (speakingRecently()) return;
       for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) cb.current(String(e.results[i][0].transcript));
     };
     rec.onerror = () => undefined;

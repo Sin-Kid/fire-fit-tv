@@ -17,3 +17,6 @@ export async function hasVoice(): Promise<boolean> {
 }
 
 export const isVoiceEnabled = () => enabled;
+
+/** Nothing is ever spoken on Vega, so a microphone never needs to ignore the TV. */
+export const speakingRecently = () => false;
