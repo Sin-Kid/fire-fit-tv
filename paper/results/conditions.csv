@@ -1,0 +1,7 @@
+cond,full,noworld,base
+clean,0.040,0.047,0.004
+noise,0.144,0.123,0.103
+occlusion,0.064,0.075,0.034
+frontal,0.051,0.778,0.713
+portrait,0.040,0.040,0.105
+flicker,0.040,0.076,0.312

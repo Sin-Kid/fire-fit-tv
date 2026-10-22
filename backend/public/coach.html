@@ -310,7 +310,7 @@ let lastFrame = 0;
 const perf = { n: 0, ms: 0, switching: false };
 // Smooth landmarks before measuring (One Euro filter): steady when still, no lag when moving.
 st.filterImg = new FormRules.LandmarkFilter();
-st.filterWorld = new FormRules.LandmarkFilter(1.0, 0.8);
+st.filterWorld = new FormRules.LandmarkFilter();
 function loop() {
   if (!st.running) return;
   requestAnimationFrame(loop);

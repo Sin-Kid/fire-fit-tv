@@ -24,6 +24,7 @@ var FormRules = (() => {
   var formRules_exports = {};
   __export(formRules_exports, {
     COUNTS_REPS: () => COUNTS_REPS,
+    FEATURES: () => FEATURES,
     FormCoach: () => FormCoach,
     LandmarkFilter: () => LandmarkFilter,
     angle: () => angle,
@@ -128,7 +129,9 @@ var FormRules = (() => {
     crunch: 400,
     burpee: 800,
     pullApart: 350,
-    jacks: 250,
+    jacks: 300,
+    skater: 400,
+    boxing: 150,
     march: 200,
     highKnees: 120,
     climbers: 120
@@ -152,7 +155,7 @@ var FormRules = (() => {
   };
   var dist = (a, b) => norm(sub(a, b));
   var LandmarkFilter = class {
-    constructor(minCutoff = 1.2, beta = 0.5, dCutoff = 1) {
+    constructor(minCutoff = 1.5, beta = 20, dCutoff = 1) {
       this.minCutoff = minCutoff;
       this.beta = beta;
       this.dCutoff = dCutoff;
@@ -194,12 +197,13 @@ var FormRules = (() => {
     }
   };
   var RepCounter = class {
-    constructor(low, high, dir = "down", minMs = 180, maxMs = 8e3) {
+    constructor(low, high, dir = "down", minMs = 180, maxMs = 8e3, requireStart = true) {
       this.low = low;
       this.high = high;
       this.dir = dir;
       this.minMs = minMs;
       this.maxMs = maxMs;
+      this.requireStart = requireStart;
       __publicField(this, "armed", false);
       __publicField(this, "since", 0);
       /** Seen the start position (past `high`) since the last rep? Starting mid-rep doesn't count. */
@@ -214,6 +218,7 @@ var FormRules = (() => {
     /** Returns the most extreme value of the finished rep, or null. */
     feed(v, t = 0) {
       const atStart = this.dir === "down" ? v > this.high : v < this.high;
+      if (!this.requireStart) this.ready = true;
       if (!this.armed && !this.ready) {
         if (atStart) this.ready = true;
         return null;
@@ -238,6 +243,7 @@ var FormRules = (() => {
       return this.armed;
     }
   };
+  var FEATURES = ["world3d", "aspectFix", "frameGating", "postureGate", "stickySide", "startRule", "minDuration", "alternation"];
   var FormCoach = class {
     constructor(exercise, key, opts = {}) {
       this.exercise = exercise;
@@ -271,6 +277,7 @@ var FormRules = (() => {
       __publicField(this, "cueGap");
       __publicField(this, "repeatGap");
       __publicField(this, "aspect");
+      __publicField(this, "on");
       /** The side of the body we measure; only switches when the other side is clearly better for a while. */
       __publicField(this, "side", null);
       __publicField(this, "betterSince", null);
@@ -279,6 +286,10 @@ var FormRules = (() => {
       this.cueGap = (_a = opts.cueGapMs) != null ? _a : 3e3;
       this.repeatGap = (_b = opts.repeatGapMs) != null ? _b : 8e3;
       this.aspect = (_c = opts.aspect) != null ? _c : 1;
+      this.on = (f) => {
+        var _a2;
+        return ((_a2 = opts.features) == null ? void 0 : _a2[f]) !== false;
+      };
     }
     /** Forget half-finished reps (you left the frame). */
     abandonAll() {
@@ -301,7 +312,7 @@ var FormRules = (() => {
      * `world` is MediaPipe's 3D world landmarks for the same frame, when available.
      */
     update(lms, t, world) {
-      var _a, _b, _c, _d, _e, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v;
+      var _a, _b, _c, _d, _e, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w;
       const out = [];
       const dt = this.lastT == null ? 0 : Math.min(500, t - this.lastT);
       (_a = this.firstT) != null ? _a : this.firstT = t;
@@ -328,7 +339,7 @@ var FormRules = (() => {
       };
       const sideScore = (sd) => Object.values(sd).reduce((a, i) => a + vis(i), 0);
       const best = sideScore(SIDE.left) >= sideScore(SIDE.right) ? "left" : "right";
-      if (this.side == null) this.side = best;
+      if (this.side == null || !this.on("stickySide")) this.side = best;
       else if (best !== this.side && sideScore(SIDE[best]) > sideScore(SIDE[this.side]) + 0.6) {
         (_c = this.betterSince) != null ? _c : this.betterSince = t;
         if (t - this.betterSince > 500) {
@@ -338,8 +349,9 @@ var FormRules = (() => {
       } else this.betterSince = null;
       const s = SIDE[this.side];
       const o = this.side === "left" ? SIDE.right : SIDE.left;
-      const useWorld = !!world && world.length >= 29;
-      const L = (i) => useWorld ? world[i] : { x: lms[i].x * this.aspect, y: lms[i].y, z: 0 };
+      const useWorld = this.on("world3d") && !!world && world.length >= 29;
+      const ax = this.on("aspectFix") ? this.aspect : 1;
+      const L = (i) => useWorld ? world[i] : { x: lms[i].x * ax, y: lms[i].y, z: 0 };
       const hidden = NEEDS[this.family].some((j) => vis(s[j]) < 0.5);
       if (hidden) {
         (_d = this.hiddenSince) != null ? _d : this.hiddenSince = t;
@@ -357,7 +369,7 @@ var FormRules = (() => {
       const leanNow = fromVertical(L(s.hip), L(s.shoulder));
       const posture = POSTURE[this.family];
       const postureOk = posture === "upright" ? leanNow < 40 : posture === "squatting" ? leanNow < 65 : posture === "lying" ? leanNow > 55 : posture === "prone" ? leanNow > 45 : true;
-      const frameOk = confident && !glitch && postureOk;
+      const frameOk = (!this.on("frameGating") || confident && !glitch) && (!this.on("postureGate") || postureOk);
       if (frameOk) this.badFrameSince = null;
       else (_e = this.badFrameSince) != null ? _e : this.badFrameSince = t;
       const lostTooLong = this.badFrameSince != null && t - this.badFrameSince > 1e3;
@@ -368,17 +380,20 @@ var FormRules = (() => {
       const counters = this.counters;
       const counter = (k, low, high, dir = "down", minMs = ((_f) => (_f = MIN_REP_MS[this.family]) != null ? _f : 180)()) => {
         var _a2;
-        const c = (_a2 = counters[k]) != null ? _a2 : counters[k] = new RepCounter(low, high, dir, minMs);
+        const c = (_a2 = counters[k]) != null ? _a2 : counters[k] = new RepCounter(low, high, dir, this.on("minDuration") ? minMs : 0, 8e3, this.on("startRule"));
         if (lostTooLong) c.abandon();
         return { inRep: c.inRep, feed: (v) => frameOk ? c.feed(v, t) : null };
       };
       const alternate = (leg) => {
+        if (!this.on("alternation")) return true;
         if (this.lastLeg === leg && t - this.lastLegAt < 1200) return false;
         this.lastLeg = leg;
         this.lastLegAt = t;
         return true;
       };
       const rep = (good, fix) => {
+        const gap = MIN_REP_MS[this.family];
+        if (this.on("minDuration") && gap && this.lastRepAt != null && t - this.lastRepAt < gap) return;
         this.lastRepAt = t;
         this.reps++;
         if (good) this.goodReps++;
@@ -515,9 +530,12 @@ var FormRules = (() => {
           if (this.stage === "closed" && feetW > 0.85) {
             this.stage = "open";
             this.track.armsUp = handsUp ? 1 : 0;
+            this.track.openAt = t;
           } else if (this.stage === "open") {
             if (handsUp) this.track.armsUp = 1;
-            if (feetW < 0.6) {
+            const held = !this.on("minDuration") || t - ((_j = this.track.openAt) != null ? _j : t) >= 150;
+            if (feetW < 0.6 && !held) this.stage = "closed";
+            else if (feetW < 0.6) {
               this.stage = "closed";
               const up = takeTrack("armsUp");
               if (up) rep(true);
@@ -535,7 +553,7 @@ var FormRules = (() => {
             const c = counter(`knee${name}`, -0.5, -0.62, "up");
             if (c.inRep) maxTrack(`peak${name}`, lift);
             if (c.feed(lift) != null && alternate(name)) {
-              const peak = (_j = takeTrack(`peak${name}`)) != null ? _j : lift;
+              const peak = (_k = takeTrack(`peak${name}`)) != null ? _k : lift;
               if (peak < need) rep(false, this.family === "highKnees" ? "Drive your knees up to hip height." : "Lift your knees a little higher.");
               else rep(true);
             }
@@ -548,7 +566,7 @@ var FormRules = (() => {
           if (c.inRep) maxTrack("swing", fromVertical(L(s.elbow), L(s.shoulder)));
           const top = c.feed(e);
           if (top != null) {
-            const swing = (_k = takeTrack("swing")) != null ? _k : 0;
+            const swing = (_l = takeTrack("swing")) != null ? _l : 0;
             if (swing > 35) rep(false, "Keep your elbows pinned to your sides.");
             else if (top > 60) rep(false, "Curl all the way up to your shoulders.");
             else rep(true);
@@ -562,7 +580,7 @@ var FormRules = (() => {
           if (c.inRep && overhead) maxTrack("top", e);
           const top = c.feed(overhead ? e : Math.min(e, 139));
           if (top != null) {
-            const best2 = (_l = takeTrack("top")) != null ? _l : top;
+            const best2 = (_m = takeTrack("top")) != null ? _m : top;
             if (best2 < 160) rep(false, "Press all the way up until your arms are straight.");
             else rep(true);
           }
@@ -574,7 +592,7 @@ var FormRules = (() => {
           if (c.inRep) minTrack("knee", knee(s));
           const bottom = c.feed(h);
           if (bottom != null) {
-            const k = (_m = takeTrack("knee")) != null ? _m : 180;
+            const k = (_n = takeTrack("knee")) != null ? _n : 180;
             if (k < 120) rep(false, "Push your hips back. This is a hinge, not a squat.");
             else rep(true);
           }
@@ -611,8 +629,8 @@ var FormRules = (() => {
         case "skater": {
           const hipX = (lms[s.hip].x + lms[o.hip].x) / 2 * this.aspect;
           const imgTorso2 = Math.hypot((lms[s.shoulder].x - lms[s.hip].x) * this.aspect, lms[s.shoulder].y - lms[s.hip].y) || 0.1;
-          const lo = this.track.skLo = Math.min(hipX, ((_n = this.track.skLo) != null ? _n : hipX) + 2e-3);
-          const hi = this.track.skHi = Math.max(hipX, ((_o = this.track.skHi) != null ? _o : hipX) - 2e-3);
+          const lo = this.track.skLo = Math.min(hipX, ((_o = this.track.skLo) != null ? _o : hipX) + 2e-3);
+          const hi = this.track.skHi = Math.max(hipX, ((_p = this.track.skHi) != null ? _p : hipX) - 2e-3);
           const off = ema("skOff", (hipX - (lo + hi) / 2) / imgTorso2, 35);
           if (this.stage !== "open" && off > 0.3) {
             this.stage = "open";
@@ -632,8 +650,8 @@ var FormRules = (() => {
         case "circles":
         case "halo": {
           const centre = this.family === "circles" ? L(s.shoulder) : L(NOSE);
-          const hand = this.family === "circles" ? L(s.wrist) : { x: (L(15).x + L(16).x) / 2, y: (L(15).y + L(16).y) / 2, z: (((_p = L(15).z) != null ? _p : 0) + ((_q = L(16).z) != null ? _q : 0)) / 2 };
-          const fwd = hand.x - centre.x - (((_r = hand.z) != null ? _r : 0) - ((_s = centre.z) != null ? _s : 0));
+          const hand = this.family === "circles" ? L(s.wrist) : { x: (L(15).x + L(16).x) / 2, y: (L(15).y + L(16).y) / 2, z: (((_q = L(15).z) != null ? _q : 0) + ((_r = L(16).z) != null ? _r : 0)) / 2 };
+          const fwd = hand.x - centre.x - (((_s = hand.z) != null ? _s : 0) - ((_t = centre.z) != null ? _t : 0));
           const a = deg(Math.atan2(fwd, centre.y - hand.y));
           const sp = this.spin;
           if (!Number.isNaN(sp.last)) {
@@ -663,7 +681,7 @@ var FormRules = (() => {
           break;
         }
       }
-      if (["burpee", "skater", "boxing", "circles", "halo", "jacks", "highKnees"].includes(this.family) && t - ((_u = (_t = this.lastRepAt) != null ? _t : this.firstT) != null ? _u : t) > 6e3) {
+      if (["burpee", "skater", "boxing", "circles", "halo", "jacks", "highKnees"].includes(this.family) && t - ((_v = (_u = this.lastRepAt) != null ? _u : this.firstT) != null ? _v : t) > 6e3) {
         cue("Keep moving. Stay light on your feet.", "info");
       }
       switch (this.family) {
@@ -677,7 +695,7 @@ var FormRules = (() => {
             this.holdMs += dt;
             holdPraise("Slow breaths. Ease a little deeper into the stretch.", 15e3);
           } else if (speed < 0.25) {
-            (_v = this.stillSince) != null ? _v : this.stillSince = t;
+            (_w = this.stillSince) != null ? _w : this.stillSince = t;
             if (t - this.stillSince > 5e3) cue("Keep moving. Stay light on your feet.", "info");
           } else {
             this.stillSince = null;

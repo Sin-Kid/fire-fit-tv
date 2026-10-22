@@ -98,7 +98,7 @@ export function useLaptopCoach(opts: {
     let landmarker: any = null;
     let raf = 0;
     const fImg = new LandmarkFilter();
-    const fWorld = new LandmarkFilter(1.0, 0.8);
+    const fWorld = new LandmarkFilter();
     const perf = { n: 0, ms: 0, kind: 'full' as 'full' | 'lite', switching: false };
 
     const draw = (lms: Landmark[] | null) => {

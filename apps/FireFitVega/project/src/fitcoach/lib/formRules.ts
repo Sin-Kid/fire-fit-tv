@@ -98,7 +98,7 @@ const POSTURE: Partial<Record<Family, 'upright' | 'squatting' | 'lying' | 'prone
 /** Shortest believable rep per family, in ms (a squat can't take 0.2 s). */
 const MIN_REP_MS: Partial<Record<Family, number>> = {
   squat: 500, lunge: 500, pushup: 400, curl: 400, press: 400, hinge: 500, row: 400, bridge: 500, crunch: 400,
-  burpee: 800, pullApart: 350, jacks: 250, march: 200, highKnees: 120, climbers: 120,
+  burpee: 800, pullApart: 350, jacks: 300, skater: 400, boxing: 150, march: 200, highKnees: 120, climbers: 120,
 };
 
 const PRAISE = ['Good rep!', 'Nice form!', 'Strong. Keep it up!', 'That’s the one!', 'Looking solid!'];
@@ -131,7 +131,7 @@ export class LandmarkFilter {
   private prev: { x: number; y: number; z: number }[] | null = null;
   private dprev: { x: number; y: number; z: number }[] | null = null;
   private lastT: number | null = null;
-  constructor(private minCutoff = 1.2, private beta = 0.5, private dCutoff = 1.0) {}
+  constructor(private minCutoff = 1.5, private beta = 20, private dCutoff = 1.0) {}
   reset() {
     this.prev = this.dprev = null;
     this.lastT = null;
@@ -183,6 +183,7 @@ class RepCounter {
     private minMs = 180,
     /** Half-finished reps are dropped after this long (you stopped or walked off). */
     private maxMs = 8000,
+    private requireStart = true,
   ) {}
   /** Drop a half-finished rep (lost tracking, wrong posture). */
   abandon() {
@@ -192,6 +193,7 @@ class RepCounter {
   /** Returns the most extreme value of the finished rep, or null. */
   feed(v: number, t = 0): number | null {
     const atStart = this.dir === 'down' ? v > this.high : v < this.high;
+    if (!this.requireStart) this.ready = true;
     if (!this.armed && !this.ready) {
       if (atStart) this.ready = true;
       return null;
@@ -226,7 +228,16 @@ export interface CoachOptions {
   repeatGapMs?: number;
   /** Camera frame width ÷ height, used when no world landmarks are given. */
   aspect?: number;
+  /**
+   * Switch individual robustness features off (all on by default). Used to measure
+   * what each one contributes (see backend/eval).
+   */
+  features?: Partial<Record<Feature, boolean>>;
 }
+
+/** Robustness features of the counter, each of which can be ablated. */
+export type Feature = 'world3d' | 'aspectFix' | 'frameGating' | 'postureGate' | 'stickySide' | 'startRule' | 'minDuration' | 'alternation';
+export const FEATURES: Feature[] = ['world3d', 'aspectFix', 'frameGating', 'postureGate', 'stickySide', 'startRule', 'minDuration', 'alternation'];
 
 export class FormCoach {
   readonly family: Family;
@@ -258,6 +269,7 @@ export class FormCoach {
   private cueGap: number;
   private repeatGap: number;
   private aspect: number;
+  private on: (f: Feature) => boolean;
   /** The side of the body we measure; only switches when the other side is clearly better for a while. */
   private side: 'left' | 'right' | null = null;
   private betterSince: number | null = null;
@@ -267,6 +279,7 @@ export class FormCoach {
     this.cueGap = opts.cueGapMs ?? 3000;
     this.repeatGap = opts.repeatGapMs ?? 8000;
     this.aspect = opts.aspect ?? 1;
+    this.on = (f: Feature) => opts.features?.[f] !== false;
   }
 
   /** Forget half-finished reps (you left the frame). */
@@ -314,7 +327,7 @@ export class FormCoach {
     const sideScore = (sd: typeof SIDE.left) => Object.values(sd).reduce((a, i) => a + vis(i), 0);
     // Sticky side choice: flipping sides between frames makes angles jump and fakes reps.
     const best = sideScore(SIDE.left) >= sideScore(SIDE.right) ? 'left' : 'right';
-    if (this.side == null) this.side = best;
+    if (this.side == null || !this.on('stickySide')) this.side = best;
     else if (best !== this.side && sideScore(SIDE[best]) > sideScore(SIDE[this.side]) + 0.6) {
       this.betterSince ??= t;
       if (t - this.betterSince > 500) {
@@ -325,8 +338,9 @@ export class FormCoach {
     const s = SIDE[this.side];
     const o = this.side === 'left' ? SIDE.right : SIDE.left;
     // Geometry in 3D metres when world landmarks are available, else aspect-corrected image space.
-    const useWorld = !!world && world.length >= 29;
-    const L = (i: number): P => (useWorld ? world![i] : { x: lms[i].x * this.aspect, y: lms[i].y, z: 0 });
+    const useWorld = this.on('world3d') && !!world && world.length >= 29;
+    const ax = this.on('aspectFix') ? this.aspect : 1;
+    const L = (i: number): P => (useWorld ? world![i] : { x: lms[i].x * ax, y: lms[i].y, z: 0 });
 
     // Is the body part this exercise needs in view?
     const hidden = NEEDS[this.family].some((j) => vis(s[j]) < 0.5);
@@ -351,7 +365,7 @@ export class FormCoach {
     const leanNow = fromVertical(L(s.hip), L(s.shoulder));
     const posture = POSTURE[this.family];
     const postureOk = posture === 'upright' ? leanNow < 40 : posture === 'squatting' ? leanNow < 65 : posture === 'lying' ? leanNow > 55 : posture === 'prone' ? leanNow > 45 : true;
-    const frameOk = confident && !glitch && postureOk;
+    const frameOk = (!this.on('frameGating') || (confident && !glitch)) && (!this.on('postureGate') || postureOk);
     if (frameOk) this.badFrameSince = null;
     else this.badFrameSince ??= t;
     const lostTooLong = this.badFrameSince != null && t - this.badFrameSince > 1000;
@@ -363,19 +377,23 @@ export class FormCoach {
     };
     const counters = this.counters;
     const counter = (k: string, low: number, high: number, dir: 'down' | 'up' = 'down', minMs = MIN_REP_MS[this.family] ?? 180) => {
-      const c = (counters[k] ??= new RepCounter(low, high, dir, minMs));
+      const c = (counters[k] ??= new RepCounter(low, high, dir, this.on('minDuration') ? minMs : 0, 8000, this.on('startRule')));
       if (lostTooLong) c.abandon();
       return { inRep: c.inRep, feed: (v: number) => (frameOk ? c.feed(v, t) : null) };
     };
     // Alternating moves (march, high knees, climbers): a leg only counts after the other one,
     // so one jittery knee can't rack up reps.
     const alternate = (leg: string) => {
+      if (!this.on('alternation')) return true;
       if (this.lastLeg === leg && t - this.lastLegAt < 1200) return false;
       this.lastLeg = leg;
       this.lastLegAt = t;
       return true;
     };
     const rep = (good: boolean, fix?: string) => {
+      // Stage-based families have no RepCounter; refuse reps faster than a human can do them.
+      const gap = MIN_REP_MS[this.family];
+      if (this.on('minDuration') && gap && this.lastRepAt != null && t - this.lastRepAt < gap) return;
       this.lastRepAt = t;
       this.reps++;
       if (good) this.goodReps++;
@@ -507,9 +525,13 @@ export class FormCoach {
         if (this.stage === 'closed' && feetW > 0.85) {
           this.stage = 'open';
           this.track.armsUp = handsUp ? 1 : 0;
+          this.track.openAt = t;
         } else if (this.stage === 'open') {
           if (handsUp) this.track.armsUp = 1;
-          if (feetW < 0.6) {
+          // A real jump holds the open position for a moment; 5 Hz shaking doesn't.
+          const held = !this.on('minDuration') || t - (this.track.openAt ?? t) >= 150;
+          if (feetW < 0.6 && !held) this.stage = 'closed';
+          else if (feetW < 0.6) {
             this.stage = 'closed';
             const up = takeTrack('armsUp');
             if (up) rep(true);

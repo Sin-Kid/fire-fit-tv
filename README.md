@@ -1,39 +1,87 @@
-# FitCoach TV (Fire-Fit)
+# Fire-Fit: AI personal trainer for Fire TV (Vega OS + Fire OS)
 
-**AI-generated, follow-along home workouts for Fire TV.**
-Pick a goal, time, level, equipment and any limits with the remote. Amazon Bedrock designs the workout, and the TV runs it: big timers, form cues you can read from across the room, an "easier" option for every move, and a coach recap at the end.
+**Fire-Fit is a TV app first.** The main product runs on **Amazon Fire TV**: built for **Vega OS** (runs on the Vega Virtual Device) and **Fire OS** (Fire TV Stick / Android TV), from one React Native codebase. You control everything with the remote: pick a goal, time, level, equipment and any limits. **Amazon Bedrock** designs the workout, and the TV runs it: animated demo figures for 32 moves, big timers readable from across the room, form tips, a live calorie counter, an "easier" option for every move, and a coach recap at the end.
 
-Hackathon entry: **Fire TV track** (fitness, AI-enhanced viewing). Amazon Bedrock generation is optional: without AWS credentials the backend uses its built-in generator.
+**Demo video (Vega OS + phone companion):** [docs/fire-fit-demo.mp4](docs/fire-fit-demo.mp4)
+
+Everything else supports the TV:
+
+- **Phone = the TV's camera and microphone (optional).** Fire TV apps get no camera or mic, so you scan a QR code on the TV and your phone becomes its sensor. MediaPipe in the phone browser counts reps and checks form, and listens for voice commands ("skip", "rest", "slow down"…). Results are **shown and spoken on the TV**. Video never leaves the phone.
+- **Laptop / browser build (bonus).** The same TV app also runs in a browser (https://fire-fit-tv.netlify.app). On a laptop it detects the webcam and microphone and coaches you by itself.
+
+Hackathon entry: **Fire TV track** (fitness, AI-enhanced viewing, computer vision, multi-modal UX) + **AWS Builder** (Amazon Bedrock, Lambda, DynamoDB). Bedrock is optional: without AWS credentials the backend and the TV use a built-in generator, so the TV never dead-ends.
 
 ```
-┌──────────────────────────┐   POST /workout    ┌──────────────────────────┐   Converse API   ┌──────────────────┐
-│ Fire TV app (Fire OS)    │ ─────────────────▶ │ FitCoach API             │ ───────────────▶ │ Amazon Bedrock   │
-│ Expo + react-native-tvos │ ◀───────────────── │ Node 24, AWS Lambda +    │ ◀─────────────── │ Amazon Nova 2    │
-│ setup → preview → play   │   workout JSON     │ Function URL (or local)  │  tool-use JSON   │ Lite (default)   │
-│ → summary                │   POST /recap      │ validates + clamps output│                  │                  │
-└──────────────────────────┘                    └──────────────────────────┘                  └──────────────────┘
-          │ API unreachable?
-          └──▶ on-device fallback generator (same rules), so the demo never dead-ends
+                         ┌─────────────────────────────────────────┐
+                         │  FIRE TV APP  (the main product)        │
+                         │  Vega OS  (Vega Virtual Device)         │
+                         │  Fire OS  (Expo + react-native-tvos)    │
+                         │  setup → preview → workout → summary    │
+                         └───────┬─────────────────────▲───────────┘
+                    POST /workout│                     │ reps, form cues,
+                    POST /recap  │                     │ voice commands (polled)
+                         ┌───────▼─────────────────────┴───────────┐   Converse API   ┌──────────────────┐
+                         │  Fire-Fit API (Node, AWS Lambda +       │ ───────────────▶ │ Amazon Bedrock   │
+                         │  DynamoDB, or Netlify Functions)        │ ◀─────────────── │ Amazon Nova 2    │
+                         │  validates + clamps model output        │  tool-use JSON   │ Lite             │
+                         └───────▲─────────────────────────────────┘                  └──────────────────┘
+                                 │ reps / cues / commands only (no video)
+                         ┌───────┴─────────────────────────────────┐
+                         │  Phone companion (optional): scan QR    │
+                         │  MediaPipe Pose + speech in the browser │
+                         └─────────────────────────────────────────┘
 ```
+
+## Screenshots: running on Vega OS (Vega Virtual Device)
+
+| | |
+|---|---|
+| ![Vega Virtual Device with the on-screen remote](docs/gallery/vega-4-simulator-remote.png) | ![About you: calorie counter setup](docs/gallery/vega-1-about-you.png) |
+| **Fire-Fit in the Vega Virtual Device**, driven by the remote | **About you**: weight, height, age with big −/+ buttons |
+| ![Setup: goal, time, level, equipment](docs/gallery/vega-2-setup.png) | ![Workout preview with the QR code](docs/gallery/vega-3-preview-qr.png) |
+| **Tell the coach what you want**: one press per choice | **Workout ready**: scan the QR code to pair your phone |
 
 ## Repo layout
 
 | Path | What it is |
 |---|---|
-| `apps/FireFitTV/` | The TV app for Fire OS (Expo SDK 57, react-native-tvos) |
-| `apps/FireFitVega/` | The same app packaged for **Vega OS** / Vega Virtual Device (see its README) |
-| `apps/FireFitTV/src/screens/` | Setup, Loading, Preview, Player, Summary |
+| `apps/FireFitVega/` | **The TV app for Vega OS** / Vega Virtual Device (see its README) |
+| `apps/FireFitTV/` | **The TV app for Fire OS** (Expo SDK 57, react-native-tvos); also builds for the web |
+| `apps/FireFitTV/src/screens/` | Profile, Setup, Loading, Preview, Player, Summary |
 | `apps/FireFitTV/src/components/FocusButton.tsx` | D-pad focusable button with a visible focus state |
+| `apps/FireFitTV/src/lib/scale.ts` | Resolution-independent sizing: sharp on 720p, 1080p and 4K TVs |
 | `apps/FireFitTV/src/lib/config.ts` | **Set the API URL here** |
 | `backend/src/bedrock.ts` | **Amazon Bedrock integration**: Converse API, forced tool call for structured JSON, recap generation |
-| `backend/src/handler.ts` | Routes `GET /health`, `POST /workout`, `POST /recap` |
+| `backend/src/coach/formRules.ts` | Rep counting and form checks from MediaPipe landmarks (same file on TV, phone and laptop) |
+| `backend/public/coach.html` | Phone companion page (camera + mic for the TV) |
+| `backend/src/handler.ts` | Routes `GET /health`, `POST /workout`, `POST /recap`, pairing sessions |
 | `backend/src/validate.ts` | Request validation and clamping of model output |
 | `backend/src/fallback.ts` | Deterministic offline generator |
-| `backend/template.yaml` | AWS SAM template: Lambda + Function URL + Bedrock IAM policy |
-| `backend/test/` | 25 tests (run offline) |
-| `docs/SUBMISSION.md` | Devpost text, demo-video script, feedback and friction-log drafts |
+| `backend/template.yaml` | AWS SAM template: Lambda + Function URL + DynamoDB + Bedrock IAM policy |
+| `backend/test/` | 160 tests (run offline) |
+| `backend/eval/` | Rep-counting benchmark (synthetic) and real-video evaluation tools |
+| `docs/` | Devpost text, friction log, gallery images |
 
-## Run it
+## Run it on the TV
+
+### Vega OS (Vega Virtual Device)
+
+Follow `apps/FireFitVega/README.md`. In short, with the Vega SDK installed:
+
+```bash
+cd apps/FireFitVega/project
+npm run build:app
+vega virtual-device start --timeout 180
+vega run-app build/aarch64-release/fitcoachvega_aarch64.vpkg com.firefit.vega.main -d VirtualDevice
+```
+
+Use the arrow keys and Enter as the remote. Vega has no text-to-speech, so coaching lines appear as on-screen captions.
+
+### Fire OS
+
+See *2. TV app (Fire OS)* below.
+
+## Backend and Fire OS setup
 
 ### 1. Backend
 
@@ -42,7 +90,7 @@ Requirements: Node 22+. For AI generation: an AWS account with Amazon Bedrock mo
 ```bash
 cd backend
 npm install
-npm test                         # 25 offline tests
+npm test                         # 160 offline tests
 aws configure                    # or export AWS_PROFILE=...
 AWS_REGION=us-east-1 npm run dev # http://0.0.0.0:8787
 ```
@@ -139,7 +187,7 @@ Open the browser build on a computer with a webcam (e.g. https://fire-fit-tv.net
 The TV runs the workout; the phone is only a sensor. TV apps get no camera and no microphone, so the phone lends them both: one page, `/coach`, with a single *Start camera + mic* button. It checks your position and form and listens for commands, and everything it finds is shown and spoken on the TV. (`FORM_CAMERA_ENABLED` and `VOICE_REMOTE_ENABLED` in `apps/FireFitTV/src/lib/config.ts` switch the two off.)
 
 1. The workout preview shows a **QR code and 4-digit code**. Scan it and the phone opens `/coach` on the backend.
-2. The phone runs **MediaPipe Pose Landmarker** (the lite BlazePose model, on-device in the browser) to find 33 body landmarks, about 15 times a second.
+2. The phone runs **MediaPipe Pose Landmarker** (the full BlazePose model with a lite fallback, on-device in the browser) to find 33 body landmarks with 3D world coordinates, up to 30 times a second.
 3. `backend/src/coach/formRules.ts` turns those landmarks into **rep counts and form cues** for the move currently on the TV: squat depth and chest position, push-up depth and hip sag, plank line, lunge depth, jumping-jack arms, knee height, curl elbow swing, press lockout, hinge vs squat, row hinge, band width. It also notices when you're out of frame or standing still. Cues are rate-limited (≥3 s apart, the same cue ≥8 s apart).
 4. **Voice:** *Start listening* on the same page uses the phone browser's speech recognition; "skip", "wait", "more rest"… go to the TV through `POST /session/:code/voice` (see Voice commands above).
 5. The phone posts reps and cues to a pairing session; the TV polls it, **captions the cue and speaks it** (Android text-to-speech via `expo-speech`), shows a live rep counter, and has a Voice on/off button.
