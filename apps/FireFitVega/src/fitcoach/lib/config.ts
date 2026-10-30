@@ -23,7 +23,15 @@ export const HOSTED_WEB_DEMO =
  * Where the API lives. Hosted on Netlify, the phone-pairing API is a Netlify Function on the
  * same site (workouts are still built on the device there); otherwise the local backend.
  */
-export const API_BASE_URL = HOSTED_WEB_DEMO ? window.location.origin : LOCAL_API;
+/**
+ * Appstore build: a real Fire TV can't reach a backend on your computer, so it talks to the
+ * hosted site (https) for phone pairing; workouts are built on the device there.
+ * Set to false to use the local backend (Amazon Bedrock workouts) in the Vega Virtual Device.
+ */
+export const USE_HOSTED_API = true;
+const HOSTED_API = 'https://fire-fit-tv.netlify.app';
+
+export const API_BASE_URL = HOSTED_WEB_DEMO ? window.location.origin : USE_HOSTED_API ? HOSTED_API : LOCAL_API;
 
 /** How long to wait for Bedrock before using the on-device fallback. */
 export const REQUEST_TIMEOUT_MS = 25000;

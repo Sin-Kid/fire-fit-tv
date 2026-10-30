@@ -2,7 +2,9 @@
 
 **Fire-Fit is a TV app first.** The main product runs on **Amazon Fire TV**: built for **Vega OS** (runs on the Vega Virtual Device) and **Fire OS** (Fire TV Stick / Android TV), from one React Native codebase. You control everything with the remote: pick a goal, time, level, equipment and any limits. **Amazon Bedrock** designs the workout, and the TV runs it: animated demo figures for 32 moves, big timers readable from across the room, form tips, a live calorie counter, an "easier" option for every move, and a coach recap at the end.
 
-**Demo video (Vega OS + phone companion):** [docs/fire-fit-demo.mp4](docs/fire-fit-demo.mp4)
+**Demo video (Vega OS + phone companion):** [Watch on YouTube](https://youtu.be/du_oGdhgtNg) · [docs/fire-fit-demo.mp4](docs/fire-fit-demo.mp4)
+
+[![Fire-Fit demo video](https://img.youtube.com/vi/du_oGdhgtNg/hqdefault.jpg)](https://youtu.be/du_oGdhgtNg)
 
 Everything else supports the TV:
 
